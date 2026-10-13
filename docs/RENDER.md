@@ -1,86 +1,115 @@
-# Production deployment on Render
+# Render Free + Aiven MySQL
 
-This repository includes a deployment definition; it has not yet been deployed.
-`render.yaml` creates two paid services in Singapore: a 512 MB PHP/Apache web
-service with a 1 GB storage disk, and a private 2 GB MySQL 8.4 service with a
-10 GB database disk. Review Render's displayed total before creating resources.
-The database is self-hosted: database maintenance and backups remain our responsibility.
+The current `render.yaml` creates ONE free Render web service. It does not create
+paid compute, disks, or a database. Aiven is configured separately. Application
+records, encrypted sessions, cache and login-code locks live in MySQL so Render
+restarts do not erase them. The app keeps using MySQL; no PostgreSQL conversion.
 
-## Account and source
+## 1. Aiven
 
-Create a Render account, enable account MFA, and connect the Render plugin if
-deploying with the assistant. Put the application in a private GitHub or GitLab
-repository and grant Render access. This workspace is not currently a Git repository.
-Never upload `.env`, `.tmp`, database exports, logs, or local session files.
-The Docker build explicitly excludes these files and installs production dependencies.
+Create an Aiven for MySQL service on the Free plan (not a paid trial). The free
+plan currently includes 1 GB storage and backups, without a time limit. Only one
+free MySQL service is allowed per organization. If another project uses it,
+create a SEPARATE database named `lending_system` in that service; do not point
+this app at the other project's existing database. Storage and connection limits
+will be shared. Prefer a separate database user restricted to lending_system.
+Do not alter or replace another project's records or credentials.
 
-Create a Blueprint from the repository's `render.yaml`. No resources are created
-merely by adding this file. Automatic web deployments are disabled for controlled releases.
+Copy the host, service port, database name, username and password from Aiven to
+Render's private environment fields. Download the service's CA certificate.
+Use the actual Aiven port (it may not be 3306). Set `AIVEN_CA_CERT` to the full
+PEM certificate, including BEGIN/END lines and actual line breaks. Startup writes
+it to MYSQL_ATTR_SSL_CA. PDO verifies the server certificate; do not disable TLS
+verification. If restricting allowed IPs in Aiven, allow the Render service's
+listed outbound IP ranges.
 
-## Private environment settings
+## 2. Email API
 
-Render prompts for APP_KEY, OWNER_USERNAME, MAIL_HOST, MAIL_USERNAME,
-MAIL_PASSWORD and MAIL_FROM_ADDRESS. Generate a new permanent production key
-with `php artisan key:generate --show` and save it directly in Render; do not
-replace the local key or commit the generated value. Preserve the production key
-in a password manager for recovery. Never regenerate it on container startup.
+Render Free blocks SMTP. This configuration uses Laravel's built-in Resend
+transport and the official resend/resend-php dependency, sending over HTTPS.
+Create a Resend API key and store it as RESEND_KEY in Render. Set MAIL_FROM_ADDRESS
+to an authorized sender from a verified domain. Free email quotas still apply.
+An existing verified domain can be reused with the owner's authorization.
 
-For an existing installation migration, securely transfer its existing APP_KEY
-when encrypted application data must remain readable.
+Resend's onboarding@resend.dev sender is for testing to the Resend account owner's
+own inbox only. Do not assume it will deliver verification codes to a different
+owner. Verify a production sender before handover; do not disable login-code
+verification to work around delivery failures. See EMAIL_LOGIN.md.
 
-Use a verified SMTP provider. The default is implicit TLS on port 465; for a
-provider requiring STARTTLS, set MAIL_SCHEME=smtp and MAIL_PORT=587. Keep email
-verification enabled. OWNER_USERNAME must exactly match the administrator created
-or transferred to production. OWNER_EMAIL may be omitted so the owner can verify
-her inbox on first sign-in. See EMAIL_LOGIN.md for the existing verification flow.
+## 3. Render Blueprint
 
-APP_URL defaults to Render's HTTPS URL at startup. For a custom domain, configure
-it in Render and explicitly set APP_URL to that HTTPS URL. TRUST_RENDER_PROXY is
-enabled only in this deployment: do not enable it on an internet-facing server
-that can bypass the trusted ingress.
+Connect Ravenn-16/Lending-app, branch main, Blueprint path render.yaml. Refresh
+any earlier setup screen so it loads the new Free configuration. The preview
+must show just lending-app on the Free plan, with no disks or lending-mysql.
+If any earlier paid services were already created, this file does not guarantee
+that they are deleted or stop billing; inspect them separately before removal.
 
-## First deployment and data
+Fill the prompted environment values privately:
 
-Wait for MySQL to finish initializing, then deploy the web service. Startup builds
-the configuration cache and runs non-destructive migrations; a migration failure
-stops startup. Retry the web deployment if MySQL was still initializing.
+| Setting | Value |
+| --- | --- |
+| APP_KEY | Permanent Laravel application key |
+| DB_HOST / DB_PORT | Aiven host and service port |
+| DB_DATABASE | Separate lending database, e.g. lending_system |
+| DB_USERNAME / DB_PASSWORD | Aiven database credentials |
+| AIVEN_CA_CERT | Full PEM certificate downloaded from Aiven |
+| OWNER_USERNAME | Intended owner username |
+| OWNER_PASSWORD_HASH | Hash generated locally for first deployment |
+| RESEND_KEY | Resend API key |
+| MAIL_FROM_ADDRESS | Verified sender address |
 
-The Blueprint creates an empty production database. Local records and administrator
-accounts are not automatically copied. Before cutover, decide whether to transfer
-the existing database using a verified SQL backup or start empty. For a fresh
-database, open the web service's Render Shell and run:
+Generate a fresh production APP_KEY locally with `php artisan key:generate --show`.
+Save it in Render and a password manager; do not change the local .env key, publish
+it, or regenerate it on every deploy. Existing encrypted data may require securely
+transferring its original key instead.
 
-```sh
-php artisan admin:create YOUR_OWNER_USERNAME
-```
+Render Free has no interactive shell. For a new empty database, run
+`php artisan admin:password-hash` locally. It prompts for a 12-72 byte password
+without echoing it, then prints a bcrypt hash. Paste the entire hash into Render's
+OWNER_PASSWORD_HASH field, without extra quotes. Do not paste it into chat or Git.
+Startup creates the owner only when no administrators exist. Existing credentials
+are never reset. Remove OWNER_PASSWORD_HASH after the first successful login.
+If importing existing accounts, OWNER_USERNAME must match the intended account.
 
-The command prompts privately for the password. For an existing database transfer,
-freeze local writes, take and verify a backup, import into the private production
-database, run migrations, and compare record counts and balances before resuming
-writes. Never run migrate:fresh, db:wipe, or seed production with test accounts.
+OWNER_EMAIL can remain unset so the owner registers and verifies her inbox on
+first sign-in. APP_URL defaults to the provided HTTPS onrender.com URL. For a
+custom domain set APP_URL explicitly. TRUST_RENDER_PROXY is only for deployments
+behind Render's ingress.
 
-## Before using real records
+## Startup and data transfer
 
-- Verify `/up`, HTTPS redirects/forms, and secure session cookies on the public URL.
-- Complete a real email-code login, resend, expiry, and logout check.
-- Verify borrower, payment, report and CSV workflows using controlled records.
-- Redeploy and confirm records, login sessions and rate limits persist.
-- Configure automated daily logical MySQL backups to separate private storage,
-  choose retention, and test restoring to an isolated database. This Blueprint
-  does not provision backup automation. Render disk snapshots alone are not a
-  database backup strategy.
+Startup validates configuration, writes the CA certificate, caches configuration,
+runs migrations, initializes the owner if needed, and starts Apache. Migration or
+owner-initialization failure stops startup. Automatic web deployments are off;
+use a manual deployment after reviewing a release.
 
-The app uses one web instance with persistent file sessions and cache locks.
-Keep one instance unless migrating sessions/cache to a shared store. Disk-backed
-deployments can have brief downtime. Schedule maintenance and take a logical
-database backup before releases or MySQL upgrades.
+Local lending data is not uploaded automatically. Before transferring existing
+records, freeze local writes, back up, import to the separate lending database,
+run migrations, and compare counts and balances. Never use migrate:fresh or
+seed test accounts in the production database. Keep exports outside Git.
 
-## Verification status
+## Free-plan limits and handover checks
 
-Local Laravel tests can be run with `php artisan test` (isolated SQLite).
-Docker is not installed in the current workspace environment, so an actual image
-build, Render deployment, SMTP delivery, backup restore and live smoke tests must
-be completed before production handover.
+Render sleeps after 15 minutes without traffic and may take about a minute to
+wake. Its 750 free instance hours are shared by the workspace: another project
+can consume the same allowance. Build, bandwidth and external traffic limits
+also apply. Do not use keep-alive pings to try to work around free-plan limits.
+Aiven can power off inactive services and its free plan has no uptime SLA.
 
-References: https://render.com/docs/blueprint-spec,
-https://render.com/docs/deploy-mysql, https://render.com/docs/disks.
+Before real use, verify HTTPS, actual inbox delivery, code expiry/resend/logout,
+reports and payments, and persistence after redeployment. Check database storage
+and account quotas. Test restoring a backup into an isolated database. Aiven's
+free backup is limited; retain independent logical exports in private storage.
+No local filesystem uploads can be retained on Render Free.
+
+Local automated tests cover account initialization, database-backed challenges,
+cache locks, session persistence and transport construction. They do not verify
+live Aiven connectivity, real email delivery, or Render's Docker build. Docker is
+not installed in the current workspace; those live checks remain required.
+
+References:
+- https://render.com/docs/free
+- https://aiven.io/docs/products/mysql/concepts/mysql-free-tier
+- https://aiven.io/docs/products/mysql/howto/connect-with-php
+- https://laravel.com/docs/12.x/mail
+- https://resend.com/docs/knowledge-base/403-error-resend-dev-domain

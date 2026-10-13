@@ -1,98 +1,68 @@
+# Free web service only. Provision Aiven MySQL separately.
 services:
-  - type: pserv
-    name: lending-mysql
-    runtime: image
-    image:
-      url: docker.io/library/mysql:8.4
-    plan: 1c-2g
-    region: singapore
-    disk:
-      name: lending-mysql-data
-      mountPath: /var/lib/mysql
-      sizeGB: 10
-    envVars:
-      - key: MYSQL_DATABASE
-        value: lending_system
-      - key: MYSQL_USER
-        value: lending_app
-      - key: MYSQL_PASSWORD
-        generateValue: true
-      - key: MYSQL_ROOT_PASSWORD
-        generateValue: true
-
   - type: web
     name: lending-app
     runtime: docker
-    plan: 0.5c-512mb
+    plan: free
     region: singapore
     healthCheckPath: /up
     autoDeployTrigger: off
-    disk:
-      name: lending-storage
-      mountPath: /var/www/html/storage
-      sizeGB: 1
     envVars:
       - key: APP_NAME
-        value: Lending System
+        value: "Lending System"
       - key: APP_ENV
-        value: production
+        value: "production"
       - key: APP_DEBUG
         value: "false"
       - key: APP_KEY
         sync: false
       - key: APP_TIMEZONE
-        value: Asia/Manila
+        value: "Asia/Manila"
       - key: TRUST_RENDER_PROXY
         value: "true"
       - key: DB_CONNECTION
-        value: mysql
+        value: "mysql"
       - key: DB_HOST
-        fromService:
-          type: pserv
-          name: lending-mysql
-          property: host
+        sync: false
       - key: DB_PORT
-        value: "3306"
+        sync: false
       - key: DB_DATABASE
-        value: lending_system
+        sync: false
       - key: DB_USERNAME
-        value: lending_app
+        sync: false
       - key: DB_PASSWORD
-        fromService:
-          type: pserv
-          name: lending-mysql
-          envVarKey: MYSQL_PASSWORD
+        sync: false
+      - key: AIVEN_CA_CERT
+        sync: false
+      - key: MYSQL_ATTR_SSL_CA
+        value: "/var/www/html/storage/app/private/aiven-ca.pem"
       - key: SESSION_DRIVER
-        value: file
+        value: "database"
       - key: SESSION_SECURE_COOKIE
         value: "true"
       - key: SESSION_ENCRYPT
         value: "true"
       - key: CACHE_STORE
-        value: file
+        value: "database"
+      - key: CACHE_PREFIX
+        value: "lending_cache_"
       - key: QUEUE_CONNECTION
-        value: sync
+        value: "sync"
       - key: LOG_CHANNEL
-        value: stderr
+        value: "stderr"
       - key: LOG_LEVEL
-        value: warning
+        value: "warning"
       - key: LOGIN_CODE_ENABLED
         value: "true"
       - key: OWNER_USERNAME
         sync: false
+      - key: OWNER_PASSWORD_HASH
+        sync: false
       - key: MAIL_MAILER
-        value: smtp
-      - key: MAIL_SCHEME
-        value: smtps
-      - key: MAIL_PORT
-        value: "465"
-      - key: MAIL_HOST
-        sync: false
-      - key: MAIL_USERNAME
-        sync: false
-      - key: MAIL_PASSWORD
+        value: "resend"
+      - key: RESEND_KEY
         sync: false
       - key: MAIL_FROM_ADDRESS
         sync: false
       - key: MAIL_FROM_NAME
-        value: Lending System
+        value: "Lending System"

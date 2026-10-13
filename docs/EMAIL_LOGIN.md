@@ -4,6 +4,11 @@ The owner signs in with their existing username and password, then enters a six-
 
 ## Enable on the host
 
+For Render Free with Aiven, follow [RENDER.md](RENDER.md). That deployment uses
+`MAIL_MAILER=resend`, `RESEND_KEY`, and a verified `MAIL_FROM_ADDRESS` over HTTPS;
+SMTP ports are blocked on Render Free. Sessions, cache, and atomic locks use the
+Aiven database. The SMTP instructions below apply to hosts that permit SMTP.
+
 Keep SMTP credentials in the host's private environment settings or `.env`, never GitHub. Set:
 
 ```dotenv
