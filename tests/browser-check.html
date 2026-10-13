@@ -1,0 +1,67 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Browser checks</title></head><body>
+<pre id="result">RUNNING</pre><iframe id="app"></iframe>
+<script>
+(async () => {
+    const result = document.getElementById('result');
+    const base = '';
+    const errors = [];
+    const checks = [];
+    const assert = (ok, label) => { if (!ok) throw new Error(label); checks.push(label); };
+    const delay = () => new Promise(resolve => setTimeout(resolve, 100));
+    const waitFor = async predicate => {
+        for (let i = 0; i < 150; i++) { if (predicate()) return; await delay(); }
+        throw new Error('Timed out waiting for page or API');
+    };
+    try {
+        const login = await (await fetch(base + '/login')).text();
+        const token = new DOMParser().parseFromString(login, 'text/html').querySelector('[name=_token]').value;
+        const response = await fetch(base + '/login', {method: 'POST', body: new URLSearchParams({username: 'test_admin', password: 'Test-password-123!', _token: token})});
+        assert(new URL(response.url).pathname === '/', 'login redirects to Laravel dashboard: ' + response.status + ' ' + response.url);
+        const frame = document.getElementById('app');
+        frame.src = base + '/money?mode=payment';
+        await new Promise(resolve => frame.onload = resolve);
+        const win = frame.contentWindow;
+        const doc = frame.contentDocument;
+        win.addEventListener('error', event => errors.push(event.message));
+        assert(Array.from(doc.querySelectorAll('link')).some(link => new URL(link.href).pathname.endsWith('/assets/css/style.css')), 'nested page asset URL');
+        const borrower = doc.getElementById('borrower_select');
+        borrower.value = '1'; borrower.dispatchEvent(new Event('change'));
+        await waitFor(() => doc.getElementById('loan_id').options.length === 2);
+        assert(true, 'borrower loan dropdown loads');
+        const loan = doc.getElementById('loan_id');
+        loan.value = '1'; loan.dispatchEvent(new Event('change'));
+        await waitFor(() => !doc.getElementById('payInFullBtn').disabled);
+        doc.getElementById('payInFullBtn').click();
+        assert(doc.getElementById('payment_amount').value === '1000.00', 'full payment amount fills');
+        // The old global alert timer removed the loan information after five seconds.
+        await new Promise(resolve => setTimeout(resolve, 5500));
+        assert(doc.getElementById('loanInfo') !== null, 'balance panel survives alert timeout');
+        loan.dispatchEvent(new Event('change'));
+        await waitFor(() => !doc.getElementById('payInFullBtn').disabled);
+        frame.src = base + '/borrowers/create';
+        await new Promise(resolve => frame.onload = resolve);
+        const addressDoc = frame.contentDocument;
+        frame.contentWindow.addEventListener('error', event => errors.push(event.message));
+        const province = addressDoc.getElementById('province_code');
+        const city = addressDoc.getElementById('city_code');
+        const barangay = addressDoc.getElementById('barangay_code');
+        assert(city.disabled && barangay.disabled, 'dependent address fields initially disabled');
+        province.value = '0102800000'; province.dispatchEvent(new Event('change'));
+        await waitFor(() => !city.disabled && city.options.length > 1);
+        city.value = '0102801000'; city.dispatchEvent(new Event('change'));
+        await waitFor(() => !barangay.disabled && barangay.options.length > 1);
+        barangay.value = '0102801001';
+        assert(barangay.selectedOptions[0].text === 'Adams', 'province city barangay selection loads locally');
+        province.value = 'NCR'; province.dispatchEvent(new Event('change'));
+        assert(!city.value && !barangay.value && barangay.disabled, 'changing province clears city and barangay');
+        await waitFor(() => !city.disabled);
+        city.value = '1380600000'; city.dispatchEvent(new Event('change'));
+        await waitFor(() => !barangay.disabled && barangay.options.length > 100);
+        assert(true, 'Metro Manila and Manila barangays available');
+        province.value = ''; province.dispatchEvent(new Event('change'));
+        assert(city.disabled && barangay.disabled && !city.required && !barangay.required, 'optional address can be cleared');
+        assert(errors.length === 0, 'no JavaScript errors');
+        result.textContent = 'PASS: ' + checks.join('; ');
+    } catch (error) { result.textContent = 'FAIL: ' + error.stack; }
+})();
+</script></body></html>

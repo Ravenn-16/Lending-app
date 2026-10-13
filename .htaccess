@@ -1,0 +1,9 @@
+Options -Indexes
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    # When installed under XAMPP htdocs, forward browser URLs to public/.
+    # Application internals must never be served as static files.
+    RewriteRule ^(?:\.|app(?:/|$)|bootstrap(?:/|$)|config(?:/|$)|database(?:/|$)|resources(?:/|$)|routes(?:/|$)|storage(?:/|$)|tests(?:/|$)|vendor(?:/|$)|artisan$|composer\.) - [F,L,NC]
+    RewriteRule ^$ public/ [R=302,L]
+    RewriteRule ^(?!public(?:/|$))(.+)$ public/$1 [R=302,L]
+</IfModule>

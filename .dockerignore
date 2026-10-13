@@ -1,0 +1,17 @@
+.git
+.agents
+.codex
+.env
+.env.*
+!.env.example
+.tmp
+vendor
+node_modules
+tests
+docs
+storage
+bootstrap/cache/*.php
+.phpunit*
+*.sql
+*.sqlite
+*.zip
